@@ -1,0 +1,1 @@
+Riodboard系统默认没有将网卡驱动编译到内核，需要自己编译。用到hostapd需要注意，apt-get install hostaapd得到的hostapd只支持nl80211协议的网卡，而8192cu支持的是新的rtl871xdrv，需要用到官网下的驱动包中重新编译hostapd

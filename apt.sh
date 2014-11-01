@@ -1,0 +1,1 @@
+apt-get install libjpeg8 libjpeg8-dev libopenjpeg2 libboost-date-time1.49-dev libboost-date-time1.49.0 libboost-dev libboost-iostreams1.49.0 libboost-system-dev libboost-thread-dev libboost1.49-dev gsoap libxml2 libxml2-dev gphoto2 libgphoto2-2 libgphoto2-2-dev

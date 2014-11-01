@@ -1,0 +1,77 @@
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap
+END
+dollySOAP.getConfig.req.xml
+K 25
+svn:wc:ra_dav:version-url
+V 83
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySOAP.getConfig.req.xml
+END
+soapH.h
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/soapH.h
+END
+dollySOAP.getConfig.res.xml
+K 25
+svn:wc:ra_dav:version-url
+V 83
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySOAP.getConfig.res.xml
+END
+soapServerLib.c
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/soapServerLib.c
+END
+dollySOAP.nsmap
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySOAP.nsmap
+END
+soapC.c
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/soapC.c
+END
+soapStub.h
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/soapStub.h
+END
+dollySOAP.sendCmd.req.xml
+K 25
+svn:wc:ra_dav:version-url
+V 81
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySOAP.sendCmd.req.xml
+END
+dollySOAP.sendCmd.res.xml
+K 25
+svn:wc:ra_dav:version-url
+V 81
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySOAP.sendCmd.res.xml
+END
+soapServer.c
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/soapServer.c
+END
+dolly.wsdl
+K 25
+svn:wc:ra_dav:version-url
+V 66
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dolly.wsdl
+END
+dollySoap.h
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/public/svn/dollycam/!svn/ver/13/trunk/src/src/soap/dollySoap.h
+END

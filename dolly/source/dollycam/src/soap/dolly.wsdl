@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<wsdl:definitions xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="http://www.example.org/dolly/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" name="dolly" targetNamespace="http://www.example.org/dolly/">
+  <wsdl:types>
+    <xsd:schema targetNamespace="http://www.example.org/dolly/">
+      <xsd:element name="sendCmd">
+        <xsd:complexType>
+          <xsd:sequence>
+          	<xsd:element name="cmd" type="xsd:int"></xsd:element>
+          	<xsd:element name="p1" type="xsd:int" />
+          	<xsd:element name="p2" type="xsd:int"></xsd:element>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="sendCmdResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="retval" type="xsd:int"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="getConfig">
+      	<xsd:complexType>
+      		<xsd:sequence>
+
+      			<xsd:element name="p1" type="xsd:int"></xsd:element>
+      		</xsd:sequence>
+      	</xsd:complexType>
+      </xsd:element>
+      <xsd:element name="getConfigResponse">
+      	<xsd:complexType>
+      		<xsd:sequence>
+
+      			<xsd:element name="out" type="xsd:string"></xsd:element>
+      		</xsd:sequence>
+      	</xsd:complexType>
+      </xsd:element>
+    </xsd:schema>
+  </wsdl:types>
+  <wsdl:message name="sendCmdRequest">
+    <wsdl:part element="tns:sendCmd" name="parameters"/>
+  </wsdl:message>
+  <wsdl:message name="sendCmdResponse">
+    <wsdl:part element="tns:sendCmdResponse" name="parameters"/>
+  </wsdl:message>
+  <wsdl:message name="getConfigRequest">
+  	<wsdl:part name="parameters" element="tns:getConfig"></wsdl:part>
+  </wsdl:message>
+  <wsdl:message name="getConfigResponse">
+  	<wsdl:part name="parameters" element="tns:getConfigResponse"></wsdl:part>
+  </wsdl:message>
+  <wsdl:portType name="dolly">
+    <wsdl:operation name="sendCmd">
+      <wsdl:input message="tns:sendCmdRequest"/>
+      <wsdl:output message="tns:sendCmdResponse"/>
+    </wsdl:operation>
+    <wsdl:operation name="getConfig">
+    	<wsdl:input message="tns:getConfigRequest"></wsdl:input>
+    	<wsdl:output message="tns:getConfigResponse"></wsdl:output>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="dollySOAP" type="tns:dolly">
+  	<soap:binding style="document"
+  		transport="http://schemas.xmlsoap.org/soap/http" />
+  	<wsdl:operation name="sendCmd">
+  		<soap:operation
+  			soapAction="http://www.example.org/dolly/sendCmd" />
+  		<wsdl:input>
+  			<soap:body use="literal" />
+  		</wsdl:input>
+  		<wsdl:output>
+  			<soap:body use="literal" />
+  		</wsdl:output>
+  	</wsdl:operation>
+  	<wsdl:operation name="getConfig">
+  		<soap:operation
+  			soapAction="http://www.example.org/dolly/getConfig" />
+  		<wsdl:input>
+  			<soap:body use="literal" />
+  		</wsdl:input>
+  		<wsdl:output>
+  			<soap:body use="literal" />
+  		</wsdl:output>
+  	</wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="dolly">
+    <wsdl:port binding="tns:dollySOAP" name="dollySOAP">
+      <soap:address location="http://www.example.org/"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

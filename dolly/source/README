@@ -1,0 +1,33 @@
+Dollycam application
+====================
+
+For compilation is neccesary to have installed following libraries. See libralies_list file for details.
+
+ * boost - threading
+ * gSoap - communication with the application
+ * gphoto2 - communication with a camera
+ * libxml2 - XML processing 
+
+At firs, check the definition of serial port for communication with motor control board in serial.c file. To compile, change path to dollycam source directory and make build directory for cmake files.
+
+$ cd dollycam
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+
+Binary is located in dollycam/build/bin directory. 
+
+MJPG streamer
+=============
+
+Libjpeg must be installed before compilation. Easy to compile:
+
+$ cd mjpg-streamer
+$ make
+
+
+
+
+
+

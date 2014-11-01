@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/root/dolly/source/dollycam/src/robo.cpp
+robo.h
+/root/dolly/source/dollycam/src/robo.h
+iostream
+-
+stdio.h
+-
+string.h
+-
+stdlib.h
+-
+errno.h
+-
+termios.h
+-
+unistd.h
+-
+sys/types.h
+-
+sys/stat.h
+-
+fcntl.h
+-
+
+/root/dolly/source/dollycam/src/robo.h
+string
+-
+sys/time.h
+-
+

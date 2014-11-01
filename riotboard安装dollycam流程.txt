@@ -1,0 +1,33 @@
+1、下载安装udhcpd, hostapd 。
+注意：现将RTL2870的驱动编译进内核，需要正常使用网卡需要在/lib/firmware中添加rt2870的firmware文件rt2870.bin。这个文件我是冲cubieboard的dollycam中复制而来。之后使用hostapd可以开启ap热点，但此时不可连接，需要配置dhcp服务器，安装udhcpd,配置/etc/udhcpd.conf文件。
+
+
+ 
+udhcpd.conf 配置：
+
+start           192.168.100.20  #default: 192.168.0.20
+end             192.168.100.254 #default: 192.168.0.254
+
+
+interface       wlan0           #default: eth0
+
+remaining       yes             #default: yes
+
+
+改/etc/default/udhcpd
+
+#DHCPD_ENABLED="no"
+
+
+
+启动流程，接好网卡（rt2870驱动），相机（相机关机）
+/root/dolly/bin/runwifi.sh
+update-rc.d udhcpd enable
+serviece udhcpd start 
+./stream/run.sh &
+./dollycam/dollyam
+ctrl+c  开相机
+./dollycam/dollyam
+
+
+

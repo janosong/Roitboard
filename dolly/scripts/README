@@ -1,0 +1,24 @@
+Scripts
+=======
+These script are not the core of the application, they are just helping to automatize some needed advances.
+
+
+hostapd/runwifi.sh
+=================
+reates a WiFi access point with any dongle plugged into USB port and which create any wlanX interface in the system. The interface is configured with default IP 192.168.100.1. Used application hostapd is compiled for armhf architecture. If you want to use it on different architecture you must compile it from source (http://w1.fi/hostapd/) or install it with packaging tool in your unix distributon.
+
+
+dnsmasq
+=======
+This application is not a part of this package. It is a dhcp server wchich servers IP addresses for clients connected to the WiFi AP. You have to install it manually. In debian systems 'apt-get install dnsmasq'
+
+Configuration file contains following row only wchich should ensure to response DHCP request on given range:
+
+dhcp-range=192.168.100.100,192.168.100.200,255.255.255.0,12h
+
+killall
+=======
+It simply kills all the processes related to dollycam and mjpg-streamer
+
+
+

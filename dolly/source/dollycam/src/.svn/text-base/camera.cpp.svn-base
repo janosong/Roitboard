@@ -1,0 +1,1163 @@
+#include "camera.h"
+#include "webService.h"
+#include <stdio.h>
+
+#define PIPE_NAME "/tmp/myFIFO"
+
+static int _gp_lookup_widget(CameraWidget*widget, const char *key, CameraWidget **child);
+static int _gp_get_config_value_string(Camera *camera, const char *key, char **str, GPContext *context);
+
+
+CCamera::CCamera(void)
+{
+	pCameraThread = NULL;
+	pEvents = NULL;
+	cameraState = CAMERA_NOT_PRESENT;
+	pWebService = NULL;
+	streamPipe = 0;
+	cameraMode = MODE_UNKNOWN;
+	afMode = false;
+}
+
+CCamera::~CCamera(void)
+{
+	if (pCameraThread)
+	{
+		delete pCameraThread;
+	}
+	
+	if (pWebService)
+	{
+		delete pWebService;
+	}
+	
+	if (pEvents)
+	{
+		delete pEvents;
+	}
+	if (streamPipe)
+	{
+		close(streamPipe);
+	}
+}
+
+CCamera *CCamera::GetCamera()
+{
+	return this;
+}
+
+bool CCamera::Initialize(void)
+{
+	pWebService = new CWebService(this);
+	if (!pWebService)
+	{
+		return false;
+	}
+	
+	if (!config.Initialize())
+	{
+		delete pWebService;
+		pWebService = NULL;
+		return false;	
+	}
+	
+	pEvents = new CCamera::CAMERA_EVENT();
+	if (!pEvents)
+	{
+		delete pWebService;
+		pWebService = NULL;
+		return false;
+	}
+	if ((streamPipe = open(PIPE_NAME, O_WRONLY)) < 0)
+	{
+		printf("error opening streaming pipe\n");
+		delete pEvents;
+		pEvents = NULL;
+		return false;
+	}
+	
+	/* initialize context and handle for camera */
+	gp_camera_new (&pCamera);
+	pContext = gp_context_new();
+	if (gp_camera_init(pCamera, pContext) == GP_OK)
+	{
+		cameraState = CAMERA_INITIALIZED;
+		printf("camera installed\n");
+		LiveViewStart();
+	}
+	else
+	{
+		cameraState = CAMERA_NOT_PRESENT;
+	}
+	
+	
+	if (!pWebService->Initialize())
+	{
+		delete pWebService;
+		
+		pWebService = NULL;
+		return false;
+	}
+
+	pCameraThread = new boost::thread(&CCamera::RunProc, this);
+	if (!pCameraThread)
+	{
+		pWebService->Run();
+		pWebService->Quit();
+		
+		delete pWebService;
+		pWebService = NULL;
+		return false;
+	}
+	return true;
+}
+
+void CCamera::Run(void)
+{
+	
+	boost::bind(&CCamera::RunProc, pCameraThread);
+	pWebService->Run();
+}
+
+void CCamera::Quit()
+{
+	pWebService->Quit();
+	pEvents->quit = true;
+	pEvents->condition.notify_one();
+	pCameraThread->join();
+}
+
+void CCamera::RunProc()
+{
+printf("mutex: %p\n", pEvents);
+	boost::unique_lock<boost::mutex> lock(pEvents->eventMutex);
+	for(;;)
+	{
+		if (cameraState == CAMERA_NOT_PRESENT)
+		{
+			pEvents->condition.timed_wait(lock, boost::posix_time::milliseconds(1000));
+		}
+		/* block inside capturing image from camera */
+		else
+		{	
+			pEvents->condition.timed_wait(lock, boost::posix_time::milliseconds(0));
+		}
+		if (pEvents->quit)
+		{
+			printf("received quit event\n");
+			break;
+		}
+		/* timeout */
+		else
+		{
+			
+			switch (cameraState)
+			{
+				case CAMERA_NOT_PRESENT:
+				{
+					int result = gp_camera_init(pCamera, pContext);
+					if (result == GP_OK)
+					{
+						printf("camera installed\n");
+						cameraState = CAMERA_INITIALIZED;
+						LiveViewStart();
+					}
+					else
+					{
+						printf("camera not installed result=0x%X\n", result);
+						
+					}
+					break;
+				}
+				default:
+				{
+					cameraMutex.lock();
+					CAMERA_MODE currentMode = GetCameraMode();
+					if (currentMode != cameraMode)
+					{
+						cameraMode = currentMode;
+						config.SetCameraMode(cameraMode);            
+						UpdateIso();
+            UpdateWb();
+            UpdateSh();
+            UpdateAp();
+            UpdateEx();
+            UpdateIf();
+            UpdateCi();
+            UpdateBt();
+						config.Invalidate();
+					}
+					else
+					{
+						UpdateIso();
+            UpdateWb();
+            UpdateSh();
+            UpdateAp();
+            UpdateEx();
+            UpdateIf();
+            UpdateCi();
+            UpdateBt();
+					}
+					bool currentAF = GetFocusMode();
+					if (currentAF != afMode)
+					{
+						afMode = currentAF;
+						config.SetAfMode(afMode);
+						config.Invalidate();
+					}
+					cameraMutex.unlock();
+					if (cameraMode != MODE_UNKNOWN)
+					{
+						//printf("before live view %d\n", cameraMode);
+						LiveViewStreamImage();
+						//printf("after live view\n");
+					}
+					else
+					{
+						printf("unknown camera mode\n");
+					}
+					
+					break;
+				}
+			}
+		
+		}
+	}
+	
+}
+
+bool CCamera::LiveViewStart()
+{
+	CameraWidget *widget = NULL, *child = NULL;
+	CameraWidgetType type;
+	/* check camera state */
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK)
+	{
+		ret = _gp_lookup_widget(widget, "capture", &child);
+	}
+	if (ret >= GP_OK)
+	{
+		ret = gp_widget_get_type(child, &type);
+	}
+	if (ret >= GP_OK)
+	{
+		if (type != GP_WIDGET_TOGGLE)
+		{
+			ret = GP_ERROR_BAD_PARAMETERS;
+			}
+	}
+	if (ret >= GP_OK)
+	{
+		/* Now set the toggle to the wanted value */
+		int onoff = 1;
+		ret = gp_widget_set_value (child, &onoff);
+	}
+	if (ret >= GP_OK)
+	{
+		ret = gp_camera_set_config(pCamera, widget, pContext);
+	}
+	if (ret >= GP_OK)
+	{
+//		LiveViewStarted = true;
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	return ret >= GP_OK;
+}
+
+bool CCamera::LiveViewStreamImage()
+{
+
+	CameraFile *gpfile = 0;
+	const char* ptr = 0;
+	unsigned long int data_size = 0;
+	
+	cameraMutex.lock();
+	int ret = gp_file_new(&gpfile);
+	if (ret == GP_OK)
+	{
+		ret = gp_camera_capture_preview(pCamera, gpfile, pContext);
+	}
+	if (ret == GP_OK)
+	{
+		// owner of 'data' is gpfile
+		ret = gp_file_get_data_and_size(gpfile, &ptr, &data_size);
+	}
+	if (ret == GP_OK)
+	{
+		int wr = write(streamPipe, ptr, data_size);
+		printf("stream capture %d %d\n", data_size, wr);
+	}
+	/* free camera file */
+	if (gpfile)
+	{
+		gp_file_free(gpfile);
+	}
+	cameraMutex.unlock();
+	return ret >= GP_OK;
+}
+
+bool CCamera::LiveViewStop()
+{
+}
+
+bool CCamera::PrintWidget()
+{
+	bool result = false;
+	int ret = -1;
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	CameraWidget* child2 = 0;
+	CameraWidget* settings = 0;
+	const char *val;
+	
+	
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK)
+	{
+		int count = gp_widget_count_children(widget);
+		
+		for(int i = 0; i < count; i++)
+		{
+			gp_widget_get_child(widget, i, &settings);
+			int count2 = gp_widget_count_children(settings);
+			gp_widget_get_name(settings, &val);
+			printf("child %d:%s\"\n", i, val);
+			gp_widget_get_label(settings, &val);
+			printf("child %d:%s\"\n", i, val);
+			for (int j = 0; j < count2; j++)
+			{
+				gp_widget_get_child(settings, j, &child);
+				gp_widget_get_name(child, &val);
+				printf("child \t%d:%s\"\n", j, val);
+				gp_widget_get_label(child, &val);
+				printf("child \t%d:%s\"\n", j, val);
+				
+			/*	int pom = gp_widget_get_value(child, &val);
+				if (pom >= 0 )
+				printf("child \t%d:%s\"\n", j, val);*/
+			}
+		}
+		printf("\n");
+	}
+	return result;
+}
+
+bool CCamera::GetFocusMode()
+{
+	int ret = -1;
+	char *value = NULL;
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "focusmode", &child);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_get_value(child, &value);
+			if (ret >= GP_OK && value)
+			{
+				if (strcmp("One Shot", value) == 0)
+				{
+					gp_widget_free(widget);
+					return true;
+				}
+			}
+		}
+	}
+	
+	if (widget)
+	{
+		gp_widget_free(widget);
+	}
+	
+	return false;
+}
+
+CAMERA_MODE CCamera::GetCameraMode()
+{
+	int ret = -1;
+	char *value = NULL;
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "autoexposuremode", &child);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_get_value(child, &value);
+			if (ret >= GP_OK && value)
+			{
+				if (strcmp("AV", value) == 0)
+				{
+					gp_widget_free(widget);
+					return MODE_AV;
+				}
+				if (strcmp("TV", value) == 0)
+				{	
+					gp_widget_free(widget);
+					return MODE_TV;
+				}
+				if (strcmp("Manual", value) == 0)
+				{
+					gp_widget_free(widget);
+					return MODE_MANUAL;
+				}
+				if (strcmp("P", value) == 0)
+				{
+					gp_widget_free(widget);
+					return MODE_P;
+				}
+				if (strcmp("A_DEP", value) == 0)
+				{
+					gp_widget_free(widget);
+					return MODE_ADEP;
+				}
+			}
+		}
+	}
+
+	if (widget)
+	{
+		gp_widget_free(widget);
+	}
+	
+	return MODE_UNKNOWN;
+}
+// Manual focus ////////////////////////////////////////////////////////////////
+int CCamera::SetManualFocus(int position) {
+
+  const char* focus_dir = 0;
+  
+	switch (position)
+	{
+  	case 0:
+	   	focus_dir = "Near 3";
+			break;
+		case 1:
+			focus_dir = "Near 2";
+			break;
+		case 2:
+			focus_dir = "Near 1";
+			break;
+		case 5:
+			focus_dir = "Far 1";
+			break;
+		case 6:
+			focus_dir = "Far 2";
+			break;
+		case 7:
+			focus_dir = "Far 3";            			
+			break;
+	}
+
+  if (focus_dir) {
+    cameraMutex.lock();
+  	CameraWidget* widget = 0;
+  	CameraWidget* child = 0;
+  	int ret;
+  	
+  	ret = gp_camera_get_config(pCamera, &widget, pContext);
+  				printf("set gp_camera_get_config %d\n", ret);
+  	if (ret >= GP_OK && widget)
+  	{
+  		ret = _gp_lookup_widget(widget, "manualfocusdrive", &child);
+  				printf("set _gp_lookup_widget %d\n", ret);
+  		if (ret >= GP_OK && child)
+  		{
+  			ret = gp_widget_set_value(child, focus_dir);
+  				printf("set gp_widget_set_value %d\n", ret);
+  			if (ret >= GP_OK)
+  			{
+  				ret = gp_camera_set_config(pCamera, widget, pContext);
+  				printf("set gp_camera_set_config %d\n", ret);
+  			}
+  		}
+  	}
+  	if (widget)
+  	{
+  		gp_widget_free (widget);
+  	}
+  	cameraMutex.unlock();
+  }
+	           	           	  
+/*	  
+	  char *value = NULL;
+	value = config.GetIfMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "imageformat", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+*/
+}
+// Battery level ///////////////////////////////////////////////////////////////
+void CCamera::UpdateBt()
+{
+
+	int ret = GP_OK;
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	char* choice = 0;
+	char buffer[256] = {0,};
+
+ 	int WbListSize = 0;
+		
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK)
+	  ret = _gp_lookup_widget(widget, "batterylevel", &child);
+	if (ret >= GP_OK)
+    ret = gp_widget_get_value(child, &choice);  
+  if (ret >= GP_OK)
+    sprintf(buffer, "Camera model: %s", choice);
+    config.ChangeBtLabel(choice);  
+}
+// Camera information //////////////////////////////////////////////////////////
+void CCamera::UpdateCi()
+{
+
+	int ret = GP_OK;
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	char* choice = 0;
+	char buffer[256] = {0,};
+   			
+	config.RemoveCiValues();
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+	if (ret >= GP_OK)
+	  ret = _gp_lookup_widget(widget, "d402", &child);
+	if (ret >= GP_OK)
+    ret = gp_widget_get_value(child, &choice);  
+  if (ret >= GP_OK)
+    sprintf(buffer, "Camera model: %s", choice);
+    config.AddCiMode(0, buffer);
+  if (ret >= GP_OK)
+	  ret = _gp_lookup_widget(widget, "serialnumber", &child);
+	if (ret >= GP_OK)
+    ret = gp_widget_get_value(child, &choice);  
+  if (ret >= GP_OK)
+    sprintf(buffer, "Serial number: %s", choice);
+    config.AddCiMode(1, buffer);
+  if (ret >= GP_OK)
+	  ret = _gp_lookup_widget(widget, "shuttercounter", &child);
+	if (ret >= GP_OK)
+    ret = gp_widget_get_value(child, &choice);  
+  if (ret >= GP_OK)
+    sprintf(buffer, "Shutter counter: %s", choice);
+    config.AddCiMode(2, buffer);
+}
+// Image format ////////////////////////////////////////////////////////////////
+void CCamera::UpdateIf()
+{
+	if (cameraMode == MODE_MANUAL || cameraMode == MODE_TV ||
+      cameraMode == MODE_P || cameraMode == MODE_AV || cameraMode == MODE_ADEP)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int IfListSize = 0;    
+
+  	ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "imageformat", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					IfListSize = ret;
+					config.RemoveIfValues();
+					for (int i = 0; i < IfListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);
+						if (ret >= GP_OK)
+						{
+							config.AddIfMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{           
+					config.SetIfMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetIfMode(true);
+	}
+	else
+	{
+		config.SetIfMode(false);
+	}
+}
+
+int CCamera::SetIf(int position)
+{
+	char *value = NULL;
+	value = config.GetIfMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "imageformat", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}
+
+// Exposure compensation ///////////////////////////////////////////////////////
+void CCamera::UpdateEx()
+{
+	if (cameraMode == MODE_TV || cameraMode == MODE_P || 
+      cameraMode == MODE_AV || cameraMode == MODE_ADEP)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int ExListSize = 0;
+		
+		ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "exposurecompensation", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					ExListSize = ret;
+					config.RemoveExValues();
+					for (int i = 0; i < ExListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);
+						if (ret >= GP_OK)
+						{
+							config.AddExMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{           
+					config.SetExMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetExMode(true);
+	}
+	else
+	{
+		config.SetExMode(false);
+	}
+}
+
+int CCamera::SetEx(int position)
+{
+	char *value = NULL;
+	value = config.GetExMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "exposurecompensation", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}
+
+// Aperture ////////////////////////////////////////////////////////////////////
+void CCamera::UpdateAp()
+{
+	if (cameraMode == MODE_MANUAL || cameraMode == MODE_AV)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int ApListSize = 0;
+		
+		ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "aperture", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					ApListSize = ret;
+					config.RemoveApValues();
+					for (int i = 0; i < ApListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);
+						if (ret >= GP_OK)
+						{
+							config.AddApMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{           
+					config.SetApMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetApMode(true);
+	}
+	else
+	{
+		config.SetApMode(false);
+	}
+}
+
+int CCamera::SetAp(int position)
+{
+	char *value = NULL;
+	value = config.GetApMode(position);	
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "aperture", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}
+
+// Shutter /////////////////////////////////////////////////////////////////////
+void CCamera::UpdateSh()
+{
+	if (cameraMode == MODE_MANUAL || cameraMode == MODE_TV)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int ShListSize = 0;
+		
+		ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "shutterspeed", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					ShListSize = ret;
+					config.RemoveShValues();
+					for (int i = 0; i < ShListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);            
+						if (ret >= GP_OK)
+						{
+							config.AddShMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{
+          //printf("======== %s\n", choice);
+					config.SetShMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetShMode(true);
+	}
+	else
+	{
+		config.SetShMode(false);
+	}
+}
+
+int CCamera::SetSh(int position)
+{
+	char *value = NULL;
+	value = config.GetShMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "shutterspeed", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}    
+
+// WB //////////////////////////////////////////////////////////////////////////
+void CCamera::UpdateWb()
+{
+	if (cameraMode == MODE_MANUAL || cameraMode == MODE_TV ||
+      cameraMode == MODE_P || cameraMode == MODE_AV || cameraMode == MODE_ADEP)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int WbListSize = 0;
+		
+		ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "whitebalance", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					WbListSize = ret;
+					config.RemoveWbValues();
+					for (int i = 0; i < WbListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);
+						if (ret >= GP_OK)
+						{
+							config.AddWbMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{           
+					config.SetWbMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetWbMode(true);
+	}
+	else
+	{
+		config.SetWbMode(false);
+	}
+}
+
+int CCamera::SetWb(int position)
+{
+	char *value = NULL;
+	value = config.GetWbMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "whitebalance", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}
+
+// ISO /////////////////////////////////////////////////////////////////////////
+void CCamera::UpdateIso()
+{
+	if (cameraMode == MODE_MANUAL || cameraMode == MODE_TV)
+	{
+		int ret = GP_OK;
+		CameraWidget* widget = 0;
+		CameraWidget* child = 0;
+		char* choice = 0;
+
+		int ISOListSize = 0;
+		
+		ret = gp_camera_get_config(pCamera, &widget, pContext);
+		if (ret >= GP_OK && widget)
+		{
+			ret = _gp_lookup_widget(widget, "iso", &child);
+			if (ret >= GP_OK && child)
+			{
+				ret = gp_widget_count_choices(child);
+				if (ret >= GP_OK)
+				{
+					ISOListSize = ret;
+					config.RemoveIsoValues();
+					for (int i = 0; i < ISOListSize; i++)
+					{
+						choice = NULL;
+						ret = gp_widget_get_choice(child, i, (const char**) &choice);
+						if (ret >= GP_OK)
+						{
+							config.AddIsoMode(i, choice);
+						}
+					}
+				}	
+				choice = NULL;
+				ret = gp_widget_get_value(child, &choice);
+				if (ret >= GP_OK && choice)
+				{
+					config.SetIsoMode(choice);
+				}
+			}
+		}
+	
+		if (widget)
+		{
+			gp_widget_free(widget);
+		}
+		config.SetIsoMode(true);
+	}
+	else
+	{
+		config.SetIsoMode(false);
+	}
+}
+
+int CCamera::SetIso(int position)
+{
+	char *value = NULL;
+	value = config.GetIsoMode(position);
+	if (!value)
+	{
+		return -1;
+	}
+	cameraMutex.lock();
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+
+	ret = gp_camera_get_config(pCamera, &widget, pContext);
+				printf("set gp_camera_get_config %d\n", ret);
+	if (ret >= GP_OK && widget)
+	{
+		ret = _gp_lookup_widget(widget, "iso", &child);
+				printf("set _gp_lookup_widget %d\n", ret);
+		if (ret >= GP_OK && child)
+		{
+			ret = gp_widget_set_value(child, value);
+				printf("set gp_widget_set_value %d\n", ret);
+			if (ret >= GP_OK)
+			{
+				ret = gp_camera_set_config(pCamera, widget, pContext);
+				printf("set gp_camera_set_config %d\n", ret);
+			}
+		}
+	}
+	if (widget)
+	{
+		gp_widget_free (widget);
+	}
+	cameraMutex.unlock();
+}
+
+static int _gp_get_config_value_string(Camera *camera, const char *key, char **str, GPContext *context)
+{
+	CameraWidget* widget = 0;
+	CameraWidget* child = 0;
+	int ret;
+	char *val;
+
+	ret = gp_camera_get_config(camera, &widget, context);
+	if (ret >= GP_OK)
+		ret = _gp_lookup_widget(widget, key, &child);
+	if (ret >= GP_OK)
+		ret = gp_widget_get_value(child, &val);
+	if (ret >= GP_OK)
+		*str = strdup(val);
+	if (widget)
+		gp_widget_free(widget);
+	return ret;
+}
+
+static int _gp_lookup_widget(CameraWidget*widget, const char *key, CameraWidget **child)
+{
+	int ret;
+	ret = gp_widget_get_child_by_name (widget, key, child);
+	if (ret < GP_OK)
+	{
+		//printf("hallo\n");
+		ret = gp_widget_get_child_by_label (widget, key, child);
+	}
+	return ret;
+}

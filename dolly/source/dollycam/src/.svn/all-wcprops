@@ -1,0 +1,53 @@
+K 25
+svn:wc:ra_dav:version-url
+V 50
+/svn/public/svn/dollycam/!svn/ver/23/trunk/src/src
+END
+camera.cpp
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/camera.cpp
+END
+CMakeLists.txt
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/public/svn/dollycam/!svn/ver/19/trunk/src/src/CMakeLists.txt
+END
+camera.h
+K 25
+svn:wc:ra_dav:version-url
+V 59
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/camera.h
+END
+cameraConfig.cpp
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/cameraConfig.cpp
+END
+webService.cpp
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/webService.cpp
+END
+cameraConfig.h
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/cameraConfig.h
+END
+webService.h
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/public/svn/dollycam/!svn/ver/24/trunk/src/src/webService.h
+END
+dollycam.cpp
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/svn/public/svn/dollycam/!svn/ver/19/trunk/src/src/dollycam.cpp
+END

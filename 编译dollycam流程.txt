@@ -1,0 +1,43 @@
+Riotboard 编译dollycam流程：
+1、更改更新源：/etc/apt/sources.list
+deb http://old-releases.ubuntu.com/ubuntu/ oneiric main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ oneiric-security main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ oneiric-updates main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ oneiric-proposed main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ oneiric-backports main restricted universe multiverse
+deb-src http://old-releases.ubuntu.com/ubuntu/ oneiric main restricted universe multiverse
+deb-src http://old-releases.ubuntu.com/ubuntu/ oneiric-security main restricted universe multiverse
+deb-src http://old-releases.ubuntu.com/ubuntu/ oneiric-updates main restricted universe multiverse
+deb-src http://old-releases.ubuntu.com/ubuntu/ oneiric-proposed main restricted universe multiverse
+deb-src http://old-releases.ubuntu.com/ubuntu/ oneiric-backports main restricted universe multiverse
+
+2、安装gcc工具链，安装cmake。
+apt-get install build-essential
+apt-get install cmake 
+
+3、更改cubieboard，dollycam的更新源，如下：
+deb http://ftp.de.debian.org/debian/ wheezy main contrib non-free
+deb http://security.debian.org/ wheezy/updates main contrib non-free
+或
+deb http://http.debian.net/debian/ wheezy main contrib non-free
+deb http://security.debian.org/ wheezy/updates main contrib non-free
+deb http://packages.cubian.org/ wheezy main
+
+
+4、安装dollycam关联库,apt.sh脚本
+apt-get install libjpeg8 libjpeg8-dev libopenjpeg2 libboost-date-time1.49-dev libboost-date-time1.49.0 libboost-dev libboost-iostreams1.49.0 libboost-system-dev libboost-thread-dev libboost1.49-dev gsoap libxml2 libxml2-dev gphoto2 libgphoto2-2 libgphoto2-2-dev
+
+
+
+5、修改camera.cpp 363行， 改 printf("stream capture %d %d\n", data_size, wr);为  printf("stream capture %lu %d\n", data_size, wr);
+
+6、这几个库可以解决编译过程的一些错误，主要还是缺少库。 
+apt-get install libgphoto2-port0  
+apt-get install zlib1g  ///usr/lib/gcc/i486-linux-gnu/4.7/../../../../lib/libxine.so: undefined /reference to `gzopen64@ZLIB_1.2.3.3'这样的错误
+apt-get install libltdl-dev 
+
+注意，要先校准时间
+
+Riotboard上串口用了UART3，对应ttymxc2,改robo.ccp文件如下：
+CRobo::CRobo() : portname_("/dev/ttymxc2"), commandHorizontal_('\x1b'),
+

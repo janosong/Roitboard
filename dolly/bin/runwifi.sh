@@ -1,0 +1,55 @@
+#/bin/bash
+WLAN=`/bin/ip addr | /bin/grep "^[0-9]*: wlan" | /usr/bin/awk -F[\ :] '{print $3}'`
+SL=3
+ROOTFOLDER=/root/dolly/bin/hostapd
+HOSTAPDCONF=$ROOTFOLDER"/hostapd.conf"
+
+##########
+HOSTAPD=$ROOTFOLDER"/hostapd"
+DRIVER="nl80211"
+
+#/sbin/rmmod 8192cu
+
+while :
+do
+  WLAN=`/bin/ip addr | /bin/grep "^[0-9]*: wlan" | /usr/bin/awk -F[\ :] '{print $3}'`
+  if [ -n "$WLAN" ]; then
+#    echo $WLAN
+    sleep $SL
+    WLAN=`/bin/ip addr | /bin/grep "^[0-9]*: wlan" | /usr/bin/awk -F[\ :] '{print $3}'`
+#    echo $WLAN
+    break
+  fi
+  echo '='
+  sleep 1
+done
+
+if [ -n "`/bin/lsmod | /bin/grep 8192cu`" ]; then
+  # no wlan iface initialized
+  HOSTAPD=$ROOTFOLDER"/hostapd-rtl8192"
+  DRIVER="rtl871xdrv"
+fi
+
+/sbin/ifconfig $WLAN down
+/sbin/ifconfig $WLAN 192.168.100.1
+
+#echo $WLAN
+#echo $HOSTAPD
+#echo $HOSTAPDCONF
+
+echo "interface="$WLAN > $HOSTAPDCONF
+echo "driver="$DRIVER >> $HOSTAPDCONF
+echo "ssid=dollycam" >> $HOSTAPDCONF
+echo "channel=8" >> $HOSTAPDCONF
+echo "hw_mode=g" >> $HOSTAPDCONF
+
+$HOSTAPD $HOSTAPDCONF &
+
+sleep 1
+/sbin/ifconfig $WLAN 192.168.100.1
+
+
+
+
+
+
